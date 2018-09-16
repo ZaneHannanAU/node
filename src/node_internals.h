@@ -180,11 +180,6 @@ extern bool v8_initialized;
 extern Mutex per_process_opts_mutex;
 extern std::shared_ptr<PerProcessOptions> per_process_opts;
 
-extern const char* const environment_flags[];
-extern int environment_flags_count;
-extern const char* const v8_environment_flags[];
-extern int v8_environment_flags_count;
-
 // Forward declaration
 class Environment;
 
@@ -888,6 +883,8 @@ void Abort(const v8::FunctionCallbackInfo<v8::Value>& args);
 void Chdir(const v8::FunctionCallbackInfo<v8::Value>& args);
 void CPUUsage(const v8::FunctionCallbackInfo<v8::Value>& args);
 void Cwd(const v8::FunctionCallbackInfo<v8::Value>& args);
+void GetActiveHandles(const v8::FunctionCallbackInfo<v8::Value>& args);
+void GetActiveRequests(const v8::FunctionCallbackInfo<v8::Value>& args);
 void Hrtime(const v8::FunctionCallbackInfo<v8::Value>& args);
 void HrtimeBigInt(const v8::FunctionCallbackInfo<v8::Value>& args);
 void Kill(const v8::FunctionCallbackInfo<v8::Value>& args);
@@ -908,6 +905,11 @@ void EnvSetter(v8::Local<v8::Name> property,
 void EnvQuery(v8::Local<v8::Name> property,
               const v8::PropertyCallbackInfo<v8::Integer>& info);
 void EnvEnumerator(const v8::PropertyCallbackInfo<v8::Array>& info);
+void DebugPortGetter(v8::Local<v8::Name> property,
+                     const v8::PropertyCallbackInfo<v8::Value>& info);
+void DebugPortSetter(v8::Local<v8::Name> property,
+                     v8::Local<v8::Value> value,
+                     const v8::PropertyCallbackInfo<void>& info);
 
 void GetParentProcessId(v8::Local<v8::Name> property,
                         const v8::PropertyCallbackInfo<v8::Value>& info);

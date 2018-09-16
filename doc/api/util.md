@@ -360,6 +360,10 @@ stream.write('With ES6');
 <!-- YAML
 added: v0.3.0
 changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/22756
+    description: The inspection output is now limited to about 128 MB. Data
+                 above that size will not be fully inspected.
   - version: v10.6.0
     pr-url: https://github.com/nodejs/node/pull/20725
     description: Inspecting linked lists and similar objects is now possible
@@ -408,11 +412,11 @@ changes:
     TODO(BridgeAR): Deprecate `maxArrayLength` and replace it with
                     `maxEntries`.
     -->
-  * `maxArrayLength` {number} Specifies the maximum number of `Array`,
+  * `maxArrayLength` {integer} Specifies the maximum number of `Array`,
     [`TypedArray`][], [`WeakMap`][] and [`WeakSet`][] elements to include when
     formatting. Set to `null` or `Infinity` to show all elements. Set to `0` or
     negative to show no elements. **Default:** `100`.
-  * `breakLength` {number} The length at which an object's keys are split
+  * `breakLength` {integer} The length at which an object's keys are split
     across multiple lines. Set to `Infinity` to format an object as a single
     line. **Default:** `60` for legacy compatibility.
   * `compact` {boolean} Setting this to `false` changes the default indentation
@@ -532,9 +536,10 @@ console.log(inspect(weakSet, { showHidden: true }));
 ```
 
 Please note that `util.inspect()` is a synchronous method that is mainly
-intended as a debugging tool. Some input values can have a significant
-performance overhead that can block the event loop. Use this function
-with care and never in a hot code path.
+intended as a debugging tool. Its maximum output length is limited to
+approximately 128 MB and input values that result in output bigger than that
+will not be inspected fully. Such values can have a significant performance
+overhead that can block the event loop for a significant amount of time.
 
 ### Customizing `util.inspect` colors
 
@@ -569,9 +574,10 @@ terminals.
 
 <!-- type=misc -->
 
-Objects may also define their own `[util.inspect.custom](depth, opts)` function
-that `util.inspect()` will invoke and use the result of when inspecting the
-object:
+Objects may also define their own
+[`[util.inspect.custom](depth, opts)`][util.inspect.custom] function,
+which `util.inspect()` will invoke and use the result of when inspecting
+the object:
 
 ```js
 const util = require('util');
@@ -623,10 +629,41 @@ util.inspect(obj);
 ### util.inspect.custom
 <!-- YAML
 added: v6.6.0
+changes:
+  - version: REPLACEME
+    pr-url: https://github.com/nodejs/node/pull/20857
+    description: This is now defined as a shared symbol.
 -->
 
-* {symbol} that can be used to declare custom inspect functions, see
-[Custom inspection functions on Objects][].
+* {symbol} that can be used to declare custom inspect functions.
+
+In addition to being accessible through `util.inspect.custom`, this
+symbol is [registered globally][global symbol registry] and can be
+accessed in any environment as `Symbol.for('nodejs.util.inspect.custom')`.
+
+```js
+const inspect = Symbol.for('nodejs.util.inspect.custom');
+
+class Password {
+  constructor(value) {
+    this.value = value;
+  }
+
+  toString() {
+    return 'xxxxxxxx';
+  }
+
+  [inspect]() {
+    return `Password <${this.toString()}>`;
+  }
+}
+
+const password = new Password('r0sebud');
+console.log(password);
+// Prints Password <xxxxxxxx>
+```
+
+See [Custom inspection functions on Objects][] for more details.
 
 ### util.inspect.defaultOptions
 <!-- YAML
@@ -2071,7 +2108,6 @@ Deprecated predecessor of `console.log`.
 [`Array.isArray()`]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/isArray
 [`ArrayBuffer`]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer
 [`ArrayBuffer.isView()`]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/ArrayBuffer/isView
-[async function]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/async_function
 [`assert.deepStrictEqual()`]: assert.html#assert_assert_deepstrictequal_actual_expected_message
 [`Buffer.isBuffer()`]: buffer.html#buffer_class_method_buffer_isbuffer_obj
 [`console.error()`]: console.html#console_console_error_data_args
@@ -2113,6 +2149,9 @@ Deprecated predecessor of `console.log`.
 [Module Namespace Object]: https://tc39.github.io/ecma262/#sec-module-namespace-exotic-objects
 [WHATWG Encoding Standard]: https://encoding.spec.whatwg.org/
 [Common System Errors]: errors.html#errors_common_system_errors
+[async function]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/async_function
 [constructor]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/constructor
+[global symbol registry]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Symbol/for
 [list of deprecated APIS]: deprecations.html#deprecations_list_of_deprecated_apis
 [semantically incompatible]: https://github.com/nodejs/node/issues/4179
+[util.inspect.custom]: #util_util_inspect_custom

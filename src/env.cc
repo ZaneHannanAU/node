@@ -46,7 +46,7 @@ IsolateData::IsolateData(Isolate* isolate,
     zero_fill_field_(zero_fill_field),
     platform_(platform) {
   if (platform_ != nullptr)
-    platform_->RegisterIsolate(this, event_loop);
+    platform_->RegisterIsolate(isolate_, event_loop);
 
   options_.reset(new PerIsolateOptions(*per_process_opts->per_isolate));
 
@@ -99,7 +99,7 @@ IsolateData::IsolateData(Isolate* isolate,
 
 IsolateData::~IsolateData() {
   if (platform_ != nullptr)
-    platform_->UnregisterIsolate(this);
+    platform_->UnregisterIsolate(isolate_);
 }
 
 
@@ -132,7 +132,6 @@ Environment::Environment(IsolateData* isolate_data,
       tick_info_(context->GetIsolate()),
       timer_base_(uv_now(isolate_data->event_loop())),
       printed_error_(false),
-      trace_sync_io_(false),
       abort_on_uncaught_exception_(false),
       emit_env_nonstring_warning_(true),
       makecallback_cntr_(0),
@@ -351,7 +350,7 @@ void Environment::StopProfilerIdleNotifier() {
 }
 
 void Environment::PrintSyncTrace() const {
-  if (!trace_sync_io_)
+  if (!options_->trace_sync_io)
     return;
 
   HandleScope handle_scope(isolate());

@@ -160,7 +160,6 @@ using v8::Object;
 using v8::ObjectTemplate;
 using v8::Promise;
 using v8::PropertyAttribute;
-using v8::PropertyCallbackInfo;
 using v8::ReadOnly;
 using v8::Script;
 using v8::ScriptCompiler;
@@ -182,9 +181,6 @@ static node_module* modlist_builtin;
 static node_module* modlist_internal;
 static node_module* modlist_linked;
 static node_module* modlist_addon;
-
-// TODO(addaleax): This should not be global.
-static bool abort_on_uncaught_exception = false;
 
 // Bit flag used to track security reverts (see node_revert.h)
 unsigned int reverted = 0;
@@ -600,68 +596,6 @@ const char* signo_string(int signo) {
   default: return "";
   }
 }
-
-// These are all flags available for use with NODE_OPTIONS.
-//
-// Disallowed flags:
-//  These flags cause Node to do things other than run scripts:
-//    --version / -v
-//    --eval / -e
-//    --print / -p
-//    --check / -c
-//    --interactive / -i
-//    --prof-process
-//    --v8-options
-//  These flags are disallowed because security:
-//    --preserve-symlinks
-const char* const environment_flags[] = {
-  // Node options, sorted in `node --help` order for ease of comparison.
-  "--enable-fips",
-  "--experimental-modules",
-  "--experimenatl-repl-await",
-  "--experimental-vm-modules",
-  "--experimental-worker",
-  "--force-fips",
-  "--icu-data-dir",
-  "--inspect",
-  "--inspect-brk",
-  "--inspect-port",
-  "--loader",
-  "--napi-modules",
-  "--no-deprecation",
-  "--no-force-async-hooks-checks",
-  "--no-warnings",
-  "--openssl-config",
-  "--pending-deprecation",
-  "--redirect-warnings",
-  "--require",
-  "--throw-deprecation",
-  "--tls-cipher-list",
-  "--trace-deprecation",
-  "--trace-event-categories",
-  "--trace-event-file-pattern",
-  "--trace-events-enabled",
-  "--trace-sync-io",
-  "--trace-warnings",
-  "--track-heap-objects",
-  "--use-bundled-ca",
-  "--use-openssl-ca",
-  "--v8-pool-size",
-  "--zero-fill-buffers",
-  "-r"
-};
-
-  // V8 options (define with '_', which allows '-' or '_')
-const char* const v8_environment_flags[] = {
-  "--abort_on_uncaught_exception",
-  "--max_old_space_size",
-  "--perf_basic_prof",
-  "--perf_prof",
-  "--stack_trace_limit",
-};
-
-int v8_environment_flags_count = arraysize(v8_environment_flags);
-int environment_flags_count = arraysize(environment_flags);
 
 // Look up environment variable unless running as setuid root.
 bool SafeGetenv(const char* key, std::string* text) {
@@ -1102,61 +1036,6 @@ static MaybeLocal<Value> ExecuteString(Environment* env,
   }
 
   return scope.Escape(result.ToLocalChecked());
-}
-
-
-static void GetActiveRequests(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-
-  Local<Array> ary = Array::New(args.GetIsolate());
-  Local<Context> ctx = env->context();
-  Local<Function> fn = env->push_values_to_array_function();
-  Local<Value> argv[NODE_PUSH_VAL_TO_ARRAY_MAX];
-  size_t idx = 0;
-
-  for (auto w : *env->req_wrap_queue()) {
-    if (w->persistent().IsEmpty())
-      continue;
-    argv[idx] = w->GetOwner();
-    if (++idx >= arraysize(argv)) {
-      fn->Call(ctx, ary, idx, argv).ToLocalChecked();
-      idx = 0;
-    }
-  }
-
-  if (idx > 0) {
-    fn->Call(ctx, ary, idx, argv).ToLocalChecked();
-  }
-
-  args.GetReturnValue().Set(ary);
-}
-
-
-// Non-static, friend of HandleWrap. Could have been a HandleWrap method but
-// implemented here for consistency with GetActiveRequests().
-void GetActiveHandles(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-
-  Local<Array> ary = Array::New(env->isolate());
-  Local<Context> ctx = env->context();
-  Local<Function> fn = env->push_values_to_array_function();
-  Local<Value> argv[NODE_PUSH_VAL_TO_ARRAY_MAX];
-  size_t idx = 0;
-
-  for (auto w : *env->handle_wrap_queue()) {
-    if (!HandleWrap::HasRef(w))
-      continue;
-    argv[idx] = w->GetOwner();
-    if (++idx >= arraysize(argv)) {
-      fn->Call(ctx, ary, idx, argv).ToLocalChecked();
-      idx = 0;
-    }
-  }
-  if (idx > 0) {
-    fn->Call(ctx, ary, idx, argv).ToLocalChecked();
-  }
-
-  args.GetReturnValue().Set(ary);
 }
 
 
@@ -1791,32 +1670,6 @@ static Local<Object> GetFeatures(Environment* env) {
 
   return scope.Escape(obj);
 }
-
-
-static void DebugPortGetter(Local<Name> property,
-                            const PropertyCallbackInfo<Value>& info) {
-  Environment* env = Environment::GetCurrent(info);
-  Mutex::ScopedLock lock(process_mutex);
-  int port = env->options()->debug_options->port();
-#if HAVE_INSPECTOR
-  if (port == 0) {
-    if (auto io = env->inspector_agent()->io())
-      port = io->port();
-  }
-#endif  // HAVE_INSPECTOR
-  info.GetReturnValue().Set(port);
-}
-
-
-static void DebugPortSetter(Local<Name> property,
-                            Local<Value> value,
-                            const PropertyCallbackInfo<void>& info) {
-  Environment* env = Environment::GetCurrent(info);
-  Mutex::ScopedLock lock(process_mutex);
-  env->options()->debug_options->host_port.port =
-      value->Int32Value(env->context()).FromMaybe(0);
-}
-
 
 static void DebugProcess(const FunctionCallbackInfo<Value>& args);
 static void DebugEnd(const FunctionCallbackInfo<Value>& args);
@@ -2670,7 +2523,7 @@ void ProcessArgv(std::vector<std::string>* args,
                 "--abort-on-uncaught-exception") != v8_args.end() ||
       std::find(v8_args.begin(), v8_args.end(),
                 "--abort_on_uncaught_exception") != v8_args.end()) {
-    abort_on_uncaught_exception = true;
+    env_opts->abort_on_uncaught_exception = true;
   }
 
   // TODO(bnoordhuis) Intercept --prof arguments and start the CPU profiler
@@ -2990,6 +2843,12 @@ MultiIsolatePlatform* CreatePlatform(
 }
 
 
+MultiIsolatePlatform* InitializeV8Platform(int thread_pool_size) {
+  v8_platform.Initialize(thread_pool_size);
+  return v8_platform.Platform();
+}
+
+
 void FreePlatform(MultiIsolatePlatform* platform) {
   delete platform;
 }
@@ -3036,8 +2895,6 @@ inline int Start(Isolate* isolate, IsolateData* isolate_data,
     return 12;  // Signal internal error.
   }
 
-  env.set_abort_on_uncaught_exception(abort_on_uncaught_exception);
-
   // TODO(addaleax): Maybe access this option directly instead of setting
   // a boolean member of Environment. Ditto below for trace_sync_io.
   if (env.options()->no_force_async_hooks_checks) {
@@ -3050,8 +2907,6 @@ inline int Start(Isolate* isolate, IsolateData* isolate_data,
     LoadEnvironment(&env);
     env.async_hooks()->pop_async_id(1);
   }
-
-  env.set_trace_sync_io(env.options()->trace_sync_io);
 
   {
     SealHandleScope seal(isolate);
@@ -3105,16 +2960,21 @@ bool AllowWasmCodeGenerationCallback(
   return wasm_code_gen->IsUndefined() || wasm_code_gen->IsTrue();
 }
 
-Isolate* NewIsolate(ArrayBufferAllocator* allocator) {
+Isolate* NewIsolate(ArrayBufferAllocator* allocator, uv_loop_t* event_loop) {
   Isolate::CreateParams params;
   params.array_buffer_allocator = allocator;
 #ifdef NODE_ENABLE_VTUNE_PROFILING
   params.code_event_handler = vTune::GetVtuneCodeEventHandler();
 #endif
 
-  Isolate* isolate = Isolate::New(params);
+  Isolate* isolate = Isolate::Allocate();
   if (isolate == nullptr)
     return nullptr;
+
+  // Register the isolate on the platform before the isolate gets initialized,
+  // so that the isolate can access the platform during initialization.
+  v8_platform.Platform()->RegisterIsolate(isolate, event_loop);
+  Isolate::Initialize(isolate, params);
 
   isolate->AddMessageListener(OnMessage);
   isolate->SetAbortOnUncaughtExceptionCallback(ShouldAbortOnUncaughtException);
@@ -3130,7 +2990,7 @@ inline int Start(uv_loop_t* event_loop,
                  const std::vector<std::string>& exec_args) {
   std::unique_ptr<ArrayBufferAllocator, decltype(&FreeArrayBufferAllocator)>
       allocator(CreateArrayBufferAllocator(), &FreeArrayBufferAllocator);
-  Isolate* const isolate = NewIsolate(allocator.get());
+  Isolate* const isolate = NewIsolate(allocator.get(), event_loop);
   if (isolate == nullptr)
     return 12;  // Signal internal error.
 
@@ -3168,6 +3028,7 @@ inline int Start(uv_loop_t* event_loop,
   }
 
   isolate->Dispose();
+  v8_platform.Platform()->UnregisterIsolate(isolate);
 
   return exit_code;
 }
@@ -3203,8 +3064,7 @@ int Start(int argc, char** argv) {
   V8::SetEntropySource(crypto::EntropySource);
 #endif  // HAVE_OPENSSL
 
-  v8_platform.Initialize(
-      per_process_opts->v8_thread_pool_size);
+  InitializeV8Platform(per_process_opts->v8_thread_pool_size);
   V8::Initialize();
   performance::performance_v8_start = PERFORMANCE_NOW();
   v8_initialized = true;
